@@ -67,6 +67,11 @@ async function checkDatabaseVersion() {
 
 async function applyMigration() {
   if (!process.env.SKIP_DB_MIGRATION) {
+    try {
+      console.log(execSync('prisma migrate resolve --applied 17_remove_duplicate_key').toString());
+    } catch (e) {
+      // Ignore errors if the migration doesn't exist or is already resolved
+    }
     console.log(execSync('prisma migrate deploy').toString());
 
     success('Database is up to date.');
