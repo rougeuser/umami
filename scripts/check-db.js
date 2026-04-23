@@ -1,10 +1,9 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import { execSync } from 'node:child_process';
-import { PrismaPg } from '@prisma/adapter-pg';
 import chalk from 'chalk';
 import semver from 'semver';
-import { PrismaClient } from '../generated/prisma/client.js';
+import pg from 'pg';
 
 const MIN_VERSION = '9.4.0';
 
@@ -13,14 +12,13 @@ if (process.env.SKIP_DB_CHECK) {
   process.exit(0);
 }
 
-const url = new URL(process.env.DATABASE_URL);
-
-const adapter = new PrismaPg(
-  { connectionString: url.toString() },
-  { schema: url.searchParams.get('schema') },
-);
-
-const prisma = new PrismaClient({ adapter });
+// Use pg directly instead of PrismaPg adapter to avoid Supabase pooler
+// compatibility issues during build-time checks.
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 1,
+  ssl: { rejectUnauthorized: false },
+});
 
 function success(msg) {
   console.log(chalk.greenBright(`✓ ${msg}`));
@@ -44,7 +42,8 @@ async function checkEnv() {
 
 async function checkConnection() {
   try {
-    await prisma.$connect();
+    const client = await pool.connect();
+    client.release();
 
     success('Database connection successful.');
   } catch (e) {
@@ -53,8 +52,8 @@ async function checkConnection() {
 }
 
 async function checkDatabaseVersion() {
-  const query = await prisma.$queryRaw`select version() as version`;
-  const version = semver.valid(semver.coerce(query[0].version));
+  const { rows } = await pool.query('SELECT version() AS version');
+  const version = semver.valid(semver.coerce(rows[0].version));
 
   if (semver.lt(version, MIN_VERSION)) {
     throw new Error(
@@ -88,8 +87,10 @@ async function applyMigration() {
       err = true;
     } finally {
       if (err) {
+        await pool.end();
         process.exit(1);
       }
     }
   }
+  await pool.end();
 })();
