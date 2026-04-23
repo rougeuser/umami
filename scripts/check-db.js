@@ -14,8 +14,12 @@ if (process.env.SKIP_DB_CHECK) {
 
 // Use pg directly instead of PrismaPg adapter to avoid Supabase pooler
 // compatibility issues during build-time checks.
+// We remove sslmode from the URL so pg doesn't override our ssl object.
+const url = new URL(process.env.DATABASE_URL);
+url.searchParams.delete('sslmode');
+
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: url.toString(),
   max: 1,
   ssl: { rejectUnauthorized: false },
 });
